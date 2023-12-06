@@ -13,5 +13,6 @@ func TestNewPlugin(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "test", p.metadata.Type)
+	assert.EqualValues(t, map[string][]string{"development": {"logs"}}, p.metadata.Status.Stability)
 	assert.Equal(t, map[string]any{}, p.defaultConfig)
 }

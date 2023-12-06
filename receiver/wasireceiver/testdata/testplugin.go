@@ -10,8 +10,13 @@ import (
 
 //export metadata
 func metadata() uint64 {
-	metadata := map[string]string{
+	metadata := map[string]any{
 		"type": "test",
+		"status": map[string]any{
+			"stability": map[string]any{
+				"development": []string{"logs"},
+			},
+		},
 	}
 	return toLeakedJSON(metadata)
 }

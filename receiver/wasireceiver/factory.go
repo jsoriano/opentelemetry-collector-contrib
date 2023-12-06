@@ -8,14 +8,17 @@ package wasireceiver // import "github.com/open-telemetry/opentelemetry-collecto
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
 )
 
@@ -59,12 +62,26 @@ func NewPlugin(ctx context.Context, pluginPath string) (*Plugin, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to init default config: %w", err)
 	}
+	err = p.initReceivers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init receivers: %w", err)
+	}
 
 	return &p, nil
 }
 
 type PluginMetadata struct {
-	Type string `mapstructure:"type"`
+	Type   string               `mapstructure:"type"`
+	Status PluginMetadataStatus `mapstructure:"status"`
+}
+
+type PluginMetadataStatus struct {
+	Class         string              `mapstructure:"class"`
+	Stability     map[string][]string `mastructure:"stability"`
+	Distributions []string            `mapstructure:"distributions"`
+	Codeowners    struct {
+		Active []string `mapstructure:"active"`
+	} `mapstructure:"codeowners"`
 }
 
 type Plugin struct {
@@ -73,14 +90,41 @@ type Plugin struct {
 
 	metadata      PluginMetadata
 	defaultConfig any
+	receivers     []receiver.FactoryOption
 }
 
 func (p *Plugin) Close(ctx context.Context) error {
 	return p.runtime.Close(ctx)
 }
 
+func stabilityLevel(name string) component.StabilityLevel {
+	switch strings.ToLower(name) {
+	case "undefined":
+		return component.StabilityLevelUndefined
+	case "unmaintained":
+		return component.StabilityLevelUnmaintained
+	case "deprecated":
+		return component.StabilityLevelDeprecated
+	case "development":
+		return component.StabilityLevelDevelopment
+	case "alpha":
+		return component.StabilityLevelAlpha
+	case "beta":
+		return component.StabilityLevelBeta
+	case "stable":
+		return component.StabilityLevelStable
+	}
+	return 0
+}
+
 func (p *Plugin) Receivers() []receiver.FactoryOption {
-	return nil
+	return p.receivers
+}
+
+func (p *Plugin) logReceiver(ctx context.Context) receiver.CreateLogsFunc {
+	return func(ctx context.Context, settings receiver.CreateSettings, config component.Config, logs consumer.Logs) (receiver.Logs, error) {
+		return nil, errors.New("not implemented")
+	}
 }
 
 func (p *Plugin) DefaultConfig() component.Config {
@@ -111,6 +155,24 @@ func (p *Plugin) initDefaultConfig(ctx context.Context) error {
 		return err
 	}
 	p.defaultConfig = defaultConfig
+	return nil
+}
+
+func (p *Plugin) initReceivers(ctx context.Context) error {
+	var options []receiver.FactoryOption
+	for stability, receivers := range p.metadata.Status.Stability {
+		for _, receiverType := range receivers {
+			var option receiver.FactoryOption
+			switch receiverType {
+			case "logs":
+				option = receiver.WithLogs(p.logReceiver(ctx), stabilityLevel(stability))
+			}
+			if option != nil {
+				options = append(options, option)
+			}
+		}
+	}
+	p.receivers = options
 	return nil
 }
 
