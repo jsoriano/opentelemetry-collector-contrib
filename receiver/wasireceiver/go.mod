@@ -41,4 +41,5 @@ require (
 	google.golang.org/grpc v1.59.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	tinygo.org/x/drivers v0.26.0 // indirect
 )

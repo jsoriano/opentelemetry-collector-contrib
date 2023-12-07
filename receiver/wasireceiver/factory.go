@@ -14,6 +14,7 @@ import (
 
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
+	"github.com/tetratelabs/wazero/experimental/gojs"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
 	"go.opentelemetry.io/collector/component"
@@ -25,7 +26,7 @@ func NewPlugin(ctx context.Context, pluginPath string) (*Plugin, error) {
 	p := Plugin{
 		path: pluginPath,
 	}
-	runtime, module, err := p.instantiate(ctx)
+	runtime, module, err := p.instantiate(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +49,7 @@ func NewPlugin(ctx context.Context, pluginPath string) (*Plugin, error) {
 	return &p, nil
 }
 
-func (p *Plugin) instantiate(ctx context.Context) (wazero.Runtime, api.Module, error) {
+func (p *Plugin) instantiate(ctx context.Context, moduleConfig wazero.ModuleConfig) (wazero.Runtime, api.Module, error) {
 	wasm, err := os.ReadFile(p.path)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read wasm plugin: %w", err)
@@ -56,11 +57,28 @@ func (p *Plugin) instantiate(ctx context.Context) (wazero.Runtime, api.Module, e
 
 	runtime := wazero.NewRuntime(ctx)
 
-	// Needed for TinyGo builds.
-	wasi_snapshot_preview1.MustInstantiate(ctx, runtime)
-
-	module, err := runtime.Instantiate(ctx, wasm)
+	compiledModule, err := runtime.CompileModule(ctx, wasm)
 	if err != nil {
+		runtime.Close(ctx)
+		return nil, nil, err
+	}
+
+	// Needed for TinyGo builds.
+	if isWASIModule(compiledModule) {
+		wasi_snapshot_preview1.MustInstantiate(ctx, runtime)
+	}
+
+	// Needed for WASM builds.
+	if isGoWASMModule(compiledModule) {
+		gojs.MustInstantiate(ctx, runtime, compiledModule)
+	}
+
+	if moduleConfig == nil {
+		moduleConfig = wazero.NewModuleConfig()
+	}
+	module, err := runtime.InstantiateModule(ctx, compiledModule, moduleConfig)
+	if err != nil {
+		runtime.Close(ctx)
 		return nil, nil, fmt.Errorf("failed to instantiate wasm plugin: %w", err)
 	}
 
@@ -68,10 +86,15 @@ func (p *Plugin) instantiate(ctx context.Context) (wazero.Runtime, api.Module, e
 	expectedFunctions := []string{
 		"metadata",
 		"defaultConfig",
+
+		"start",
+		"stop",
 	}
 	for _, expectedFunction := range expectedFunctions {
 		_, found := functions[expectedFunction]
 		if !found {
+			module.Close(ctx)
+			runtime.Close(ctx)
 			return nil, nil, fmt.Errorf("missing exported function %s", expectedFunction)
 		}
 	}
@@ -127,7 +150,12 @@ func (p *Plugin) Receivers() []receiver.FactoryOption {
 
 func (p *Plugin) logReceiver(ctx context.Context) receiver.CreateLogsFunc {
 	return func(ctx context.Context, settings receiver.CreateSettings, config component.Config, logs consumer.Logs) (receiver.Logs, error) {
-		return &wasiPluginWrapper{}, nil
+		return &wasiLogsWrapper{
+			plugin:   p,
+			settings: settings,
+			config:   config,
+			logs:     logs,
+		}, nil
 	}
 }
 
@@ -209,13 +237,64 @@ func free(ctx context.Context, module api.Module, ptr uint32) {
 	}
 }
 
-type wasiPluginWrapper struct {
+type wasiLogsWrapper struct {
+	plugin   *Plugin
+	settings receiver.CreateSettings
+	config   component.Config
+	logs     consumer.Logs
+
+	runtime wazero.Runtime
+	module  api.Module
 }
 
-func (w *wasiPluginWrapper) Start(ctx context.Context, host component.Host) error {
+func (w *wasiLogsWrapper) Start(ctx context.Context, host component.Host) error {
+	runtime, module, err := w.plugin.instantiate(ctx, nil)
+	if err != nil {
+		return err
+	}
+	w.runtime = runtime
+	w.module = module
+
+	result, err := module.ExportedFunction("start").Call(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to execute start: %w", err)
+	}
+	if len(result) > 0 && result[0] > 0 {
+		return fmt.Errorf("failed to start")
+	}
 	return nil
 }
 
-func (w *wasiPluginWrapper) Shutdown(ctx context.Context) error {
+func (w *wasiLogsWrapper) Shutdown(ctx context.Context) error {
+	defer w.runtime.Close(ctx)
+	defer w.module.Close(ctx)
+
+	_, err := w.module.ExportedFunction("stop").Call(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to execute stop: %w", err)
+	}
+
 	return nil
+}
+
+func isWASIModule(module wazero.CompiledModule) bool {
+	for _, f := range module.ImportedFunctions() {
+		moduleName, _, _ := f.Import()
+		switch moduleName {
+		case "wasi_snapshot_preview1":
+			return true
+		}
+	}
+	return false
+}
+
+func isGoWASMModule(module wazero.CompiledModule) bool {
+	for _, f := range module.ImportedFunctions() {
+		moduleName, _, _ := f.Import()
+		switch moduleName {
+		case "go", "gojs":
+			return true
+		}
+	}
+	return false
 }

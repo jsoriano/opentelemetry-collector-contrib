@@ -6,6 +6,7 @@ import "C"
 import (
 	"encoding/json"
 	"unsafe"
+	//"tinygo.org/x/drivers/net/http"
 )
 
 //export metadata
@@ -25,6 +26,51 @@ func metadata() uint64 {
 func defaultConfig() uint64 {
 	config := map[string]string{}
 	return toLeakedJSON(config)
+}
+
+// var server *http.Server
+
+//export start
+func start() uint64 {
+	/*
+		if server != nil {
+			return toLeakedJSON(map[string]any{"error": "already started"})
+		}
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("/record", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method != "POST" {
+				http.NotFound(w, req)
+				return
+			}
+			// TODO: Call the publish function.
+		})
+		mux.Handle("/", http.NotFoundHandler())
+		server := &http.Server{
+			Addr:    "127.0.0.1:8080", // TODO: Get from config.
+			Handler: mux,
+		}
+		go func() {
+			_ = server.ListenAndServe()
+			// TODO: Report the error if any.
+		}()
+	*/
+
+	return 0
+}
+
+//export stop
+func stop() uint64 {
+	/*
+		if server == nil {
+			return toLeakedJSON(map[string]any{"error": "not started"})
+		}
+
+		server.Close()
+		server = nil
+	*/
+
+	return 0
 }
 
 // toLeakedJSON returns an uint64 with the pointer and the size of
