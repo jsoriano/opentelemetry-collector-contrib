@@ -71,7 +71,7 @@ func NewPlugin(ctx context.Context, pluginPath string) (*Plugin, error) {
 }
 
 type PluginMetadata struct {
-	Type   string               `mapstructure:"type"`
+	Type   component.Type       `mapstructure:"type"`
 	Status PluginMetadataStatus `mapstructure:"status"`
 }
 
