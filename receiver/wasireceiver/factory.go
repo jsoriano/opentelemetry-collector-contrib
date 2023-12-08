@@ -15,6 +15,7 @@ import (
 	"github.com/tetratelabs/wazero"
 	"github.com/tetratelabs/wazero/api"
 	"github.com/tetratelabs/wazero/experimental/gojs"
+	"github.com/tetratelabs/wazero/experimental/sock"
 	"github.com/tetratelabs/wazero/imports/wasi_snapshot_preview1"
 
 	"go.opentelemetry.io/collector/component"
@@ -74,9 +75,10 @@ func (p *Plugin) instantiate(ctx context.Context, moduleConfig wazero.ModuleConf
 	}
 
 	if moduleConfig == nil {
-		moduleConfig = wazero.NewModuleConfig()
+		moduleConfig = wazero.NewModuleConfig().WithSysNanotime()
 	}
-	module, err := runtime.InstantiateModule(ctx, compiledModule, moduleConfig)
+	moduleCtx := sock.WithConfig(ctx, sock.NewConfig())
+	module, err := runtime.InstantiateModule(moduleCtx, compiledModule, moduleConfig)
 	if err != nil {
 		runtime.Close(ctx)
 		return nil, nil, fmt.Errorf("failed to instantiate wasm plugin: %w", err)

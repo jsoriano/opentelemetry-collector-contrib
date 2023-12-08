@@ -6,6 +6,7 @@ import "C"
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"unsafe"
 )
@@ -37,9 +38,11 @@ func start() uint64 {
 		return toLeakedJSON(map[string]any{"error": "already started"})
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	address := "127.0.0.1:8080"
+	listener, err := net.Listen("tcp", address)
 	if err != nil {
-		return toLeakedJSON(map[string]any{"error": err.Error()})
+		message := fmt.Sprintf("listening on %s: %s", address, err.Error())
+		return toLeakedJSON(map[string]any{"error": message})
 	}
 	server = &Server{
 		listener: listener,
