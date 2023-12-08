@@ -44,7 +44,13 @@ func TestFactory(t *testing.T) {
 	}
 	settings.Logger = zap.Must(zap.NewDevelopment())
 
-	_, err = builder.CreateLogs(ctx, settings, &testLogsConsumer{})
+	logs, err := builder.CreateLogs(ctx, settings, &testLogsConsumer{})
+	assert.NoError(t, err)
+
+	err = logs.Start(ctx, nil)
+	assert.NoError(t, err)
+
+	err = logs.Shutdown(ctx)
 	assert.NoError(t, err)
 }
 

@@ -5,8 +5,9 @@ import "C"
 
 import (
 	"encoding/json"
+	"errors"
+	"net"
 	"unsafe"
-	//"tinygo.org/x/drivers/net/http"
 )
 
 //export metadata
@@ -28,47 +29,62 @@ func defaultConfig() uint64 {
 	return toLeakedJSON(config)
 }
 
-// var server *http.Server
+var server *Server
 
 //export start
 func start() uint64 {
-	/*
-		if server != nil {
-			return toLeakedJSON(map[string]any{"error": "already started"})
-		}
+	if server != nil {
+		return toLeakedJSON(map[string]any{"error": "already started"})
+	}
 
-		mux := http.NewServeMux()
-		mux.HandleFunc("/record", func(w http.ResponseWriter, req *http.Request) {
-			if req.Method != "POST" {
-				http.NotFound(w, req)
-				return
-			}
-			// TODO: Call the publish function.
-		})
-		mux.Handle("/", http.NotFoundHandler())
-		server := &http.Server{
-			Addr:    "127.0.0.1:8080", // TODO: Get from config.
-			Handler: mux,
-		}
-		go func() {
-			_ = server.ListenAndServe()
-			// TODO: Report the error if any.
-		}()
-	*/
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		return toLeakedJSON(map[string]any{"error": err.Error()})
+	}
+	server = &Server{
+		listener: listener,
+	}
+	go server.Serve()
 
 	return 0
 }
 
-//export stop
-func stop() uint64 {
-	/*
-		if server == nil {
-			return toLeakedJSON(map[string]any{"error": "not started"})
+type Server struct {
+	listener net.Listener
+}
+
+func (s *Server) Serve() {
+	for {
+		conn, err := s.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			return
 		}
 
-		server.Close()
-		server = nil
-	*/
+		if err != nil {
+			// TODO: Error callback
+			break
+		}
+		go s.handle(conn)
+	}
+}
+
+func (s *Server) handle(conn net.Conn) {
+	// TODO: Publish callback.
+	conn.Close()
+}
+
+func (s *Server) Close() error {
+	return s.listener.Close()
+}
+
+//export stop
+func stop() uint64 {
+	if server == nil {
+		return toLeakedJSON(map[string]any{"error": "not started"})
+	}
+
+	server.Close()
+	server = nil
 
 	return 0
 }

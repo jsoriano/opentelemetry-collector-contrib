@@ -63,12 +63,12 @@ func (p *Plugin) instantiate(ctx context.Context, moduleConfig wazero.ModuleConf
 		return nil, nil, err
 	}
 
-	// Needed for TinyGo builds.
+	// Needed for WASI builds.
 	if isWASIModule(compiledModule) {
 		wasi_snapshot_preview1.MustInstantiate(ctx, runtime)
 	}
 
-	// Needed for WASM builds.
+	// Needed for Go WASM builds.
 	if isGoWASMModule(compiledModule) {
 		gojs.MustInstantiate(ctx, runtime, compiledModule)
 	}
@@ -211,8 +211,13 @@ func (p *Plugin) initReceivers(ctx context.Context) error {
 func callJSONResponse(ctx context.Context, module api.Module, functionName string, response any) error {
 	result, err := module.ExportedFunction(functionName).Call(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to retrieve metadata: %w", err)
+		return fmt.Errorf("failed to call %s: %w", functionName, err)
 	}
+	if len(result) == 0 || result[0] == 0 {
+		// Nothing in the response.
+		return nil
+	}
+
 	ptr := uint32(result[0] >> 32)
 	size := uint32(result[0])
 
@@ -247,6 +252,10 @@ type wasiLogsWrapper struct {
 	module  api.Module
 }
 
+type callResult struct {
+	Error string `mapstructure:"error"`
+}
+
 func (w *wasiLogsWrapper) Start(ctx context.Context, host component.Host) error {
 	runtime, module, err := w.plugin.instantiate(ctx, nil)
 	if err != nil {
@@ -255,12 +264,13 @@ func (w *wasiLogsWrapper) Start(ctx context.Context, host component.Host) error 
 	w.runtime = runtime
 	w.module = module
 
-	result, err := module.ExportedFunction("start").Call(ctx)
+	var result callResult
+	err = callJSONResponse(ctx, w.module, "start", &result)
 	if err != nil {
 		return fmt.Errorf("failed to execute start: %w", err)
 	}
-	if len(result) > 0 && result[0] > 0 {
-		return fmt.Errorf("failed to start")
+	if result.Error != "" {
+		return fmt.Errorf("failed to start: %s", result.Error)
 	}
 	return nil
 }
@@ -269,9 +279,13 @@ func (w *wasiLogsWrapper) Shutdown(ctx context.Context) error {
 	defer w.runtime.Close(ctx)
 	defer w.module.Close(ctx)
 
-	_, err := w.module.ExportedFunction("stop").Call(ctx)
+	var result callResult
+	err := callJSONResponse(ctx, w.module, "stop", &result)
 	if err != nil {
 		return fmt.Errorf("failed to execute stop: %w", err)
+	}
+	if result.Error != "" {
+		return fmt.Errorf("failed to start: %s", result.Error)
 	}
 
 	return nil
