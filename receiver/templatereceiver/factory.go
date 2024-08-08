@@ -34,25 +34,13 @@ func createDefaultConfig() component.Config {
 }
 
 func createLogsReceiver(_ context.Context, params receiver.Settings, cfg component.Config, consumer consumer.Logs) (receiver.Logs, error) {
-	r := receivers.GetOrAdd(cfg, func() component.Component {
-		return newTemplateReceiver(params, cfg.(*Config))
-	})
-	r.Component.(*templateReceiver).nextLogsConsumer = consumer
-	return r, nil
+	return newTemplateReceiver(params, cfg.(*Config), consumer), nil
 }
 
 func createMetricsReceiver(_ context.Context, params receiver.Settings, cfg component.Config, consumer consumer.Metrics) (receiver.Metrics, error) {
-	r := receivers.GetOrAdd(cfg, func() component.Component {
-		return newTemplateReceiver(params, cfg.(*Config))
-	})
-	r.Component.(*templateReceiver).nextMetricsConsumer = consumer
-	return r, nil
+	return newTemplateReceiver(params, cfg.(*Config), consumer), nil
 }
 
 func createTracesReceiver(_ context.Context, params receiver.Settings, cfg component.Config, consumer consumer.Traces) (receiver.Traces, error) {
-	r := receivers.GetOrAdd(cfg, func() component.Component {
-		return newTemplateReceiver(params, cfg.(*Config))
-	})
-	r.Component.(*templateReceiver).nextTracesConsumer = consumer
-	return r, nil
+	return newTemplateReceiver(params, cfg.(*Config), consumer), nil
 }

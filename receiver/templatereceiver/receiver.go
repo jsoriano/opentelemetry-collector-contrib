@@ -7,29 +7,27 @@ import (
 	"context"
 
 	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
 )
 
-type templateReceiver struct {
-	params              receiver.Settings
-	config              *Config
-	nextLogsConsumer    consumer.Logs
-	nextMetricsConsumer consumer.Metrics
-	nextTracesConsumer  consumer.Traces
+type templateReceiver[T any] struct {
+	params       receiver.Settings
+	config       *Config
+	nextConsumer T
 }
 
-func newTemplateReceiver(params receiver.Settings, config *Config) component.Component {
-	return &templateReceiver{
-		params: params,
-		config: config,
+func newTemplateReceiver[T any](params receiver.Settings, config *Config, consumer T) *templateReceiver[T] {
+	return &templateReceiver[T]{
+		params:       params,
+		config:       config,
+		nextConsumer: consumer,
 	}
 }
 
-func (r *templateReceiver) Start(ctx context.Context, host component.Host) error {
+func (r *templateReceiver[T]) Start(ctx context.Context, host component.Host) error {
 	return nil
 }
 
-func (r *templateReceiver) Shutdown(ctx context.Context) error {
+func (r *templateReceiver[T]) Shutdown(ctx context.Context) error {
 	return nil
 }
