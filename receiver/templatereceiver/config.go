@@ -7,6 +7,7 @@ import "errors"
 
 type Config struct {
 	Name       string         `mapstructure:"name"`
+	Pipelines  []string       `mapstructure:"pipelines"`
 	Version    string         `mapstructure:"version"`
 	Parameters map[string]any `mapstructure:"parameters"`
 }

@@ -12,6 +12,13 @@ import (
 	"go.opentelemetry.io/collector/receiver"
 )
 
+const (
+	pipelinesConfKey  = "pipelines"
+	processorsConfKey = "processors"
+	receiverConfKey   = "receiver"
+	receiversConfKey  = "receivers"
+)
+
 type templateReceiver[T any] struct {
 	params       receiver.Settings
 	config       *Config
@@ -37,9 +44,15 @@ func (r *templateReceiver[T]) Start(ctx context.Context, host component.Host) er
 	if err != nil {
 		return fmt.Errorf("failed to create configuration resolver: %w", err)
 	}
-	_, err = resolver.Resolve(ctx)
+	conf, err := resolver.Resolve(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to resolve template: %w", err)
+		return fmt.Errorf("failed to resolve template %q: %w", err)
+	}
+
+	var templateConfig templateConfig
+	err = conf.Unmarshal(&templateConfig)
+	if err != nil {
+		return fmt.Errorf("failed to decode template %q: %w", err)
 	}
 
 	return nil

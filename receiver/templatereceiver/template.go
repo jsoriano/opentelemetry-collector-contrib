@@ -5,6 +5,7 @@ package templatereceiver
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 
 	"go.opentelemetry.io/collector/component"
@@ -36,4 +37,44 @@ func (t *templateFile) uri() string {
 
 func (t *templateFile) providerFactory() confmap.ProviderFactory {
 	return fileprovider.NewFactory()
+}
+
+type templateConfig struct {
+	Receivers  map[component.ID]component.Config `mapstructure:"receivers"`
+	Processors map[component.ID]component.Config `mapstructure:"processors"`
+	Pipelines  map[component.ID]templatePipeline `mapstructure:"pipelines"`
+}
+
+func (c *templateConfig) Validate() error {
+	for id, pipeline := range c.Pipelines {
+		if err := pipeline.Validate(); err != nil {
+			return fmt.Errorf("invalid pipeline %q: %w", id, err)
+		}
+
+		if _, found := c.Receivers[pipeline.Receiver]; !found {
+			return fmt.Errorf("receiver %s not defined", pipeline.Receiver.String())
+		}
+
+		for _, processor := range pipeline.Processors {
+			if _, found := c.Processors[processor]; !found {
+				return fmt.Errorf("processor %q not defined", processor.String())
+			}
+
+		}
+	}
+
+	return nil
+}
+
+type templatePipeline struct {
+	Receiver   component.ID   `mapstructure:"receiver"`
+	Processors []component.ID `mapstructure:"processors"`
+}
+
+func (p *templatePipeline) Validate() error {
+	if len(p.Receiver.Type().String()) == 0 {
+		return fmt.Errorf("pipeline without receiver")
+	}
+
+	return nil
 }
