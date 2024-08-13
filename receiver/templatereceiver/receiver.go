@@ -134,7 +134,9 @@ func (r *templateReceiver) startPipeline(ctx context.Context, host factoryGetter
 		return fmt.Errorf("could not compose receiver config for %s: %w", pipeline.Receiver.String(), err)
 	}
 
-	for i, id := range pipeline.Processors {
+	processors := slices.Clone(pipeline.Processors)
+	slices.Reverse(processors)
+	for i, id := range processors {
 		processorConfig, found := config.Processors[id]
 		if !found {
 			return fmt.Errorf("processor %q not found", id)
