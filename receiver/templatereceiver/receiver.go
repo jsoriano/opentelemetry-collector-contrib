@@ -153,7 +153,7 @@ func (r *templateReceiver) startPipeline(ctx context.Context, host factoryGetter
 		}
 
 		params := processor.Settings(r.params)
-		params.ID = component.NewIDWithName(factory.Type(), fmt.Sprintf("%s-%d", pipelineID, i))
+		params.ID = component.NewIDWithName(factory.Type(), fmt.Sprintf("%s-%s-%d", r.params.ID, pipelineID, i))
 		params.Logger = params.Logger.With(zap.String("name", params.ID.String()))
 		if consumerChain.logs != nil {
 			logs, err := factory.CreateLogsProcessor(ctx, params, config, consumerChain.logs)
