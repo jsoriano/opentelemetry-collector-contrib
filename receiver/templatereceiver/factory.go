@@ -34,13 +34,13 @@ func createDefaultConfig() component.Config {
 }
 
 func createLogsReceiver(_ context.Context, params receiver.Settings, cfg component.Config, consumer consumer.Logs) (receiver.Logs, error) {
-	return newTemplateReceiver(params, cfg.(*Config), consumer), nil
+	return newTemplateLogsReceiver(params, cfg.(*Config), consumer), nil
 }
 
 func createMetricsReceiver(_ context.Context, params receiver.Settings, cfg component.Config, consumer consumer.Metrics) (receiver.Metrics, error) {
-	return newTemplateReceiver(params, cfg.(*Config), consumer), nil
+	return newTemplateMetricsReceiver(params, cfg.(*Config), consumer), nil
 }
 
 func createTracesReceiver(_ context.Context, params receiver.Settings, cfg component.Config, consumer consumer.Traces) (receiver.Traces, error) {
-	return newTemplateReceiver(params, cfg.(*Config), consumer), nil
+	return newTemplateTracesReceiver(params, cfg.(*Config), consumer), nil
 }

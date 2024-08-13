@@ -3,11 +3,15 @@
 
 package templatereceiver
 
-import "errors"
+import (
+	"errors"
+
+	"go.opentelemetry.io/collector/component"
+)
 
 type Config struct {
 	Name       string         `mapstructure:"name"`
-	Pipelines  []string       `mapstructure:"pipelines"`
+	Pipelines  []component.ID `mapstructure:"pipelines"`
 	Version    string         `mapstructure:"version"`
 	Parameters map[string]any `mapstructure:"parameters"`
 }

@@ -40,8 +40,8 @@ func (t *templateFile) providerFactory() confmap.ProviderFactory {
 }
 
 type templateConfig struct {
-	Receivers  map[component.ID]component.Config `mapstructure:"receivers"`
-	Processors map[component.ID]component.Config `mapstructure:"processors"`
+	Receivers  map[component.ID]map[string]any   `mapstructure:"receivers"`
+	Processors map[component.ID]map[string]any   `mapstructure:"processors"`
 	Pipelines  map[component.ID]templatePipeline `mapstructure:"pipelines"`
 }
 
