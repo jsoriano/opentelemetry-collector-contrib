@@ -14,14 +14,14 @@ import (
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/confmap/provider/fileprovider"
 
-	"github.com/open-telemetry/opentelemetry-collector-contrib/receiver/templatereceiver"
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/templates"
 )
 
 type fileTemplateExtension struct {
 	config *Config
 }
 
-var _ templatereceiver.TemplateFinder = &fileTemplateExtension{}
+var _ templates.TemplateFinder = &fileTemplateExtension{}
 
 func newFileTemplateExtension(config *Config) *fileTemplateExtension {
 	return &fileTemplateExtension{
@@ -29,11 +29,11 @@ func newFileTemplateExtension(config *Config) *fileTemplateExtension {
 	}
 }
 
-func (e *fileTemplateExtension) FindTemplate(ctx context.Context, name, version string) (templatereceiver.Template, error) {
+func (e *fileTemplateExtension) FindTemplate(ctx context.Context, name, version string) (templates.Template, error) {
 	path := filepath.Join(e.config.Path, name+".yml")
 	_, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, templatereceiver.ErrNotFound
+		return nil, templates.ErrNotFound
 	}
 	if err != nil {
 		return nil, err

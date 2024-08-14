@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"slices"
 
+	"go.uber.org/zap"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/processor"
 	"go.opentelemetry.io/collector/receiver"
-	"go.uber.org/zap"
+
+	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/templates"
 )
 
 const (
@@ -69,7 +72,7 @@ func (r *templateReceiver) Start(ctx context.Context, ch component.Host) error {
 		return fmt.Errorf("templatereceiver is not compatible with the provided component.Host")
 	}
 
-	template, err := r.findTemplate(ctx, host, r.config.Name, r.config.Version)
+	template, err := templates.Find(ctx, r.params.Logger, host, r.config.Name, r.config.Version)
 	if err != nil {
 		return fmt.Errorf("failed to find template %q: %w", r.config.Name, err)
 	}
@@ -83,7 +86,7 @@ func (r *templateReceiver) Start(ctx context.Context, ch component.Host) error {
 		return fmt.Errorf("failed to resolve template %q: %w", err)
 	}
 
-	var templateConfig templateConfig
+	var templateConfig templates.Config
 	err = conf.Unmarshal(&templateConfig)
 	if err != nil {
 		return fmt.Errorf("failed to decode template %q: %w", err)
@@ -108,7 +111,7 @@ func (r *templateReceiver) Start(ctx context.Context, ch component.Host) error {
 	return nil
 }
 
-func (r *templateReceiver) startPipeline(ctx context.Context, host factoryGetter, config templateConfig, pipelineID component.ID, pipeline templatePipeline) error {
+func (r *templateReceiver) startPipeline(ctx context.Context, host factoryGetter, config templates.Config, pipelineID component.ID, pipeline templates.PipelineConfig) error {
 	consumerChain := struct {
 		logs    consumer.Logs
 		metrics consumer.Metrics
@@ -230,7 +233,7 @@ func (r *templateReceiver) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func newResolver(template Template, variables map[string]any) (*confmap.Resolver, error) {
+func newResolver(template templates.Template, variables map[string]any) (*confmap.Resolver, error) {
 	settings := confmap.ResolverSettings{
 		URIs: []string{template.URI()},
 		ProviderFactories: []confmap.ProviderFactory{

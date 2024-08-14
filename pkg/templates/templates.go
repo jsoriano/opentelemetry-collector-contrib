@@ -1,16 +1,17 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package templatereceiver
+package templates
 
 import (
 	"context"
 	"errors"
 	"fmt"
 
+	"go.uber.org/zap"
+
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
-	"go.uber.org/zap"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -24,7 +25,7 @@ type TemplateFinder interface {
 	FindTemplate(ctx context.Context, name, version string) (Template, error)
 }
 
-func (r *templateReceiver) findTemplate(ctx context.Context, host component.Host, name string, version string) (Template, error) {
+func Find(ctx context.Context, logger *zap.Logger, host component.Host, name string, version string) (Template, error) {
 	anyExtension := false
 	for eid, extension := range host.GetExtensions() {
 		finder, ok := extension.(TemplateFinder)
@@ -38,7 +39,7 @@ func (r *templateReceiver) findTemplate(ctx context.Context, host component.Host
 			continue
 		}
 		if err != nil {
-			r.params.Logger.Error("template finder failed",
+			logger.Error("template finder failed",
 				zap.String("component", eid.String()),
 				zap.Error(err))
 			return nil, err
@@ -53,13 +54,13 @@ func (r *templateReceiver) findTemplate(ctx context.Context, host component.Host
 	return nil, ErrNotFound
 }
 
-type templateConfig struct {
-	Receivers  map[component.ID]map[string]any   `mapstructure:"receivers"`
-	Processors map[component.ID]map[string]any   `mapstructure:"processors"`
-	Pipelines  map[component.ID]templatePipeline `mapstructure:"pipelines"`
+type Config struct {
+	Receivers  map[component.ID]map[string]any `mapstructure:"receivers"`
+	Processors map[component.ID]map[string]any `mapstructure:"processors"`
+	Pipelines  map[component.ID]PipelineConfig `mapstructure:"pipelines"`
 }
 
-func (c *templateConfig) Validate() error {
+func (c *Config) Validate() error {
 	for id, pipeline := range c.Pipelines {
 		if err := pipeline.Validate(); err != nil {
 			return fmt.Errorf("invalid pipeline %q: %w", id, err)
@@ -80,12 +81,12 @@ func (c *templateConfig) Validate() error {
 	return nil
 }
 
-type templatePipeline struct {
+type PipelineConfig struct {
 	Receiver   component.ID   `mapstructure:"receiver"`
 	Processors []component.ID `mapstructure:"processors"`
 }
 
-func (p *templatePipeline) Validate() error {
+func (p *PipelineConfig) Validate() error {
 	if len(p.Receiver.Type().String()) == 0 {
 		return fmt.Errorf("pipeline without receiver")
 	}
