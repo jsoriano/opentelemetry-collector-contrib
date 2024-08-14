@@ -69,7 +69,7 @@ func (r *templateReceiver) Start(ctx context.Context, ch component.Host) error {
 		return fmt.Errorf("templatereceiver is not compatible with the provided component.Host")
 	}
 
-	template, err := findTemplate(ctx, host, r.config.Name, r.config.Version)
+	template, err := r.findTemplate(ctx, host, r.config.Name, r.config.Version)
 	if err != nil {
 		return fmt.Errorf("failed to find template %q: %w", r.config.Name, err)
 	}
@@ -230,11 +230,11 @@ func (r *templateReceiver) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func newResolver(template template, variables map[string]any) (*confmap.Resolver, error) {
+func newResolver(template Template, variables map[string]any) (*confmap.Resolver, error) {
 	settings := confmap.ResolverSettings{
-		URIs: []string{template.uri()},
+		URIs: []string{template.URI()},
 		ProviderFactories: []confmap.ProviderFactory{
-			template.providerFactory(),
+			template.ProviderFactory(),
 			newVariablesProviderFactory(variables),
 		},
 	}

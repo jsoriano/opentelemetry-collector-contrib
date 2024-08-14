@@ -5,38 +5,52 @@ package templatereceiver
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"path/filepath"
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
-	"go.opentelemetry.io/collector/confmap/provider/fileprovider"
+	"go.uber.org/zap"
 )
 
-type template interface {
-	uri() string
-	providerFactory() confmap.ProviderFactory
+var ErrNotFound = errors.New("not found")
+
+type Template interface {
+	URI() string
+	ProviderFactory() confmap.ProviderFactory
 }
 
-func findTemplate(ctx context.Context, host component.Host, name string, version string) (template, error) {
-	// TODO: use extensions to provide collections of templates instead of hard-coding path.
-	// TODO: versioning
-	templatePath := filepath.Join("templates", name+".yml")
-	return &templateFile{
-		path: templatePath,
-	}, nil
+type TemplateFinder interface {
+	FindTemplate(ctx context.Context, name, version string) (Template, error)
 }
 
-type templateFile struct {
-	path string
-}
+func (r *templateReceiver) findTemplate(ctx context.Context, host component.Host, name string, version string) (Template, error) {
+	anyExtension := false
+	for eid, extension := range host.GetExtensions() {
+		finder, ok := extension.(TemplateFinder)
+		if !ok {
+			continue
+		}
+		anyExtension = true
 
-func (t *templateFile) uri() string {
-	return "file:" + t.path
-}
+		template, err := finder.FindTemplate(ctx, name, version)
+		if errors.Is(ErrNotFound, err) {
+			continue
+		}
+		if err != nil {
+			r.params.Logger.Error("template finder failed",
+				zap.String("component", eid.String()),
+				zap.Error(err))
+			return nil, err
+		}
 
-func (t *templateFile) providerFactory() confmap.ProviderFactory {
-	return fileprovider.NewFactory()
+		return template, nil
+	}
+	if !anyExtension {
+		return nil, errors.New("no template finder extension found")
+	}
+
+	return nil, ErrNotFound
 }
 
 type templateConfig struct {
