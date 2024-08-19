@@ -1,0 +1,72 @@
+------
+# config.yml
+extensions:
+  file_templates:
+    path: "/some/path/to/templates"
+  remote_templates:
+    address: "https://epr.elastic.co/otel"
+
+receivers:
+  templatereceiver/couchbase:
+    template: "couchbase"
+    variables:
+      endpoint: couchbase:8091
+      username: someuser
+      password: somepassword
+
+exporters:
+  elasticsearch:
+    endpoint: https://localhost:5200
+
+service:
+  pipelines:
+    metrics:
+      receivers: [templatereiver/couchbase]
+      exporters: [elasticsearch]
+
+------
+# couchbase.yml
+# TBD: versioning?
+receivers: # TBD: A single receiver?
+  prometheus:
+    scrape_configs:
+      - job_name: 'couchbase'
+        scrape_interval: 5s
+        static_configs:
+          - targets: ${var:endpoint} # TBD: How to set defaults?
+        basic_auth:
+          username: ${var:username}
+          password: ${var:password}
+processors:
+  filter:
+    ...
+  metricstransform:
+    ...
+pipelines:
+  metrics:
+    receiver: prometheus
+    processors: [filter, metricstransform]
+------
+# factory.go
+
+# Find and retrieve template file using template extensions.
+for _, templates := range host.GetExtensions() {
+  ....
+}
+
+# Instantiate a confmap provider for "var" with the configured variables.
+# Resolve the template using the "var" provider only. And maybe the "env" one?
+confmap.NewResolver(confmap.ResolverSettings{Factories: []confmap.ProviderFactory{...}})
+
+# Build processors pipeline
+for name, config := range processors {
+  processorFactory := host.GetFactory(component.KindProcessor, name)
+
+  # Concatenate consumer.
+}
+
+receiverFactory := host.GetFactory(component.KindReceiver, receiver.Name)
+...
+# Build receiver using the consumer created with the processors.
+
+

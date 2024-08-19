@@ -1,10 +1,11 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package templatereceiver
+package templateprocessor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -13,8 +14,10 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/plog"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/processor"
-	"go.opentelemetry.io/collector/receiver"
 
 	"github.com/open-telemetry/opentelemetry-collector-contrib/pkg/templates"
 )
@@ -26,50 +29,55 @@ const (
 	receiversConfKey  = "receivers"
 )
 
-type templateReceiver struct {
-	params              receiver.Settings
+type templateProcessor struct {
+	params              processor.Settings
 	config              *Config
 	components          []component.Component
+	capabilities        consumer.Capabilities
 	nextMetricsConsumer consumer.Metrics
 	nextLogsConsumer    consumer.Logs
 	nextTracesConsumer  consumer.Traces
+
+	metrics consumer.Metrics
+	logs    consumer.Logs
+	traces  consumer.Traces
 }
 
-func newTemplateLogsReceiver(params receiver.Settings, config *Config, consumer consumer.Logs) *templateReceiver {
-	return &templateReceiver{
+func newTemplateLogsProcessor(params processor.Settings, config *Config, consumer consumer.Logs) *templateProcessor {
+	return &templateProcessor{
 		params:           params,
 		config:           config,
 		nextLogsConsumer: consumer,
 	}
 }
 
-func newTemplateMetricsReceiver(params receiver.Settings, config *Config, consumer consumer.Metrics) *templateReceiver {
-	return &templateReceiver{
+func newTemplateMetricsProcessor(params processor.Settings, config *Config, consumer consumer.Metrics) *templateProcessor {
+	return &templateProcessor{
 		params:              params,
 		config:              config,
 		nextMetricsConsumer: consumer,
 	}
 }
 
-func newTemplateTracesReceiver(params receiver.Settings, config *Config, consumer consumer.Traces) *templateReceiver {
-	return &templateReceiver{
+func newTemplateTracesProcessor(params processor.Settings, config *Config, consumer consumer.Traces) *templateProcessor {
+	return &templateProcessor{
 		params:             params,
 		config:             config,
 		nextTracesConsumer: consumer,
 	}
 }
 
-// factoryGetter is an interface that the component.Host passed to receivercreator's Start function must implement
+// factoryGetter is an interface that the component.Host passed to processorcreator's Start function must implement
 // GetFactory is optional in hosts since 107.0, but we require it.
 type factoryGetter interface {
 	component.Host
 	GetFactory(component.Kind, component.Type) component.Factory
 }
 
-func (r *templateReceiver) Start(ctx context.Context, ch component.Host) error {
+func (r *templateProcessor) Start(ctx context.Context, ch component.Host) error {
 	host, ok := ch.(factoryGetter)
 	if !ok {
-		return fmt.Errorf("templatereceiver is not compatible with the provided component.Host")
+		return fmt.Errorf("templateprocessor is not compatible with the provided component.Host")
 	}
 
 	template, err := templates.Find(ctx, r.params.Logger, host, r.config.Name, r.config.Version)
@@ -92,9 +100,16 @@ func (r *templateReceiver) Start(ctx context.Context, ch component.Host) error {
 		return fmt.Errorf("failed to decode template %q: %w", r.config.Name, err)
 	}
 
-	pipelines, err := selectComponents(templateConfig.Pipelines, r.config.Pipelines)
+	selectedPipelines := []component.ID{}
+	if r.config.Pipeline != nil {
+		selectedPipelines = append(selectedPipelines, *r.config.Pipeline)
+	}
+	pipelines, err := selectComponents(templateConfig.Pipelines, selectedPipelines)
 	if err != nil {
 		return fmt.Errorf("failed to select component: %w", err)
+	}
+	if len(pipelines) > 1 {
+		return errors.New("multiple pipelines selected, select only one")
 	}
 	for id, pipeline := range pipelines {
 		err := r.startPipeline(ctx, host, templateConfig, id, pipeline)
@@ -111,31 +126,10 @@ func (r *templateReceiver) Start(ctx context.Context, ch component.Host) error {
 	return nil
 }
 
-func (r *templateReceiver) startPipeline(ctx context.Context, host factoryGetter, config templates.Config, pipelineID component.ID, pipeline templates.PipelineConfig) error {
-	consumerChain := struct {
-		logs    consumer.Logs
-		metrics consumer.Metrics
-		traces  consumer.Traces
-	}{
-		logs:    r.nextLogsConsumer,
-		metrics: r.nextMetricsConsumer,
-		traces:  r.nextTracesConsumer,
-	}
-
-	receiverConfig, found := config.Receivers[pipeline.Receiver]
-	if !found {
-		return fmt.Errorf("receiver %q not found", pipeline.Receiver)
-	}
-
-	receiverFactory, ok := host.GetFactory(component.KindReceiver, pipeline.Receiver.Type()).(receiver.Factory)
-	if !ok {
-		return fmt.Errorf("could not find receiver factory for %q", pipeline.Receiver.Type())
-	}
-
-	preparedConfig, err := prepareComponentConfig(receiverFactory.CreateDefaultConfig, receiverConfig)
-	if err != nil {
-		return fmt.Errorf("could not compose receiver config for %s: %w", pipeline.Receiver.String(), err)
-	}
+func (r *templateProcessor) startPipeline(ctx context.Context, host factoryGetter, config templates.Config, pipelineID component.ID, pipeline templates.PipelineConfig) error {
+	r.logs = r.nextLogsConsumer
+	r.metrics = r.nextMetricsConsumer
+	r.traces = r.nextTracesConsumer
 
 	processors := slices.Clone(pipeline.Processors)
 	slices.Reverse(processors)
@@ -158,55 +152,30 @@ func (r *templateReceiver) startPipeline(ctx context.Context, host factoryGetter
 		params := processor.Settings(r.params)
 		params.ID = component.NewIDWithName(factory.Type(), fmt.Sprintf("%s-%s-%d", r.params.ID, pipelineID, i))
 		params.Logger = params.Logger.With(zap.String("name", params.ID.String()))
-		if consumerChain.logs != nil {
-			logs, err := factory.CreateLogsProcessor(ctx, params, config, consumerChain.logs)
+		if r.logs != nil {
+			logs, err := factory.CreateLogsProcessor(ctx, params, config, r.logs)
 			if err != nil {
 				return fmt.Errorf("failed to create logs processor %s: %w", params.ID, err)
 			}
-			consumerChain.logs = logs
+			r.logs = logs
 			r.components = append(r.components, logs)
 		}
-		if consumerChain.metrics != nil {
-			metrics, err := factory.CreateMetricsProcessor(ctx, params, config, consumerChain.metrics)
+		if r.metrics != nil {
+			metrics, err := factory.CreateMetricsProcessor(ctx, params, config, r.metrics)
 			if err != nil {
 				return fmt.Errorf("failed to create metrics processor %s: %w", params.ID, err)
 			}
-			consumerChain.metrics = metrics
+			r.metrics = metrics
 			r.components = append(r.components, metrics)
 		}
-		if consumerChain.traces != nil {
-			traces, err := factory.CreateTracesProcessor(ctx, params, config, consumerChain.traces)
+		if r.traces != nil {
+			traces, err := factory.CreateTracesProcessor(ctx, params, config, r.traces)
 			if err != nil {
 				return fmt.Errorf("failed to create traces processor %s: %w", params.ID, err)
 			}
-			consumerChain.traces = traces
+			r.traces = traces
 			r.components = append(r.components, traces)
 		}
-	}
-
-	params := r.params
-	params.ID = component.NewIDWithName(receiverFactory.Type(), fmt.Sprintf("%s-receiver", pipelineID))
-	params.Logger = params.Logger.With(zap.String("name", params.ID.String()))
-	if consumerChain.logs != nil {
-		logs, err := receiverFactory.CreateLogsReceiver(ctx, params, preparedConfig, consumerChain.logs)
-		if err != nil {
-			return fmt.Errorf("failed to create logs processor %s: %w", params.ID, err)
-		}
-		r.components = append(r.components, logs)
-	}
-	if consumerChain.metrics != nil {
-		metrics, err := receiverFactory.CreateMetricsReceiver(ctx, params, preparedConfig, consumerChain.metrics)
-		if err != nil {
-			return fmt.Errorf("failed to create metrics processor %s: %w", params.ID, err)
-		}
-		r.components = append(r.components, metrics)
-	}
-	if consumerChain.traces != nil {
-		traces, err := receiverFactory.CreateTracesReceiver(ctx, params, preparedConfig, consumerChain.traces)
-		if err != nil {
-			return fmt.Errorf("failed to create traces processor %s: %w", params.ID, err)
-		}
-		r.components = append(r.components, traces)
 	}
 
 	for _, component := range r.components {
@@ -219,7 +188,7 @@ func (r *templateReceiver) startPipeline(ctx context.Context, host factoryGetter
 	return nil
 }
 
-func (r *templateReceiver) Shutdown(ctx context.Context) error {
+func (r *templateProcessor) Shutdown(ctx context.Context) error {
 	// Shutdown them in reverse order as they were created.
 	components := slices.Clone(r.components)
 	slices.Reverse(r.components)
@@ -231,6 +200,22 @@ func (r *templateReceiver) Shutdown(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (r *templateProcessor) Capabilities() consumer.Capabilities {
+	return r.capabilities
+}
+
+func (r *templateProcessor) ConsumeLogs(ctx context.Context, logs plog.Logs) error {
+	return r.logs.ConsumeLogs(ctx, logs)
+}
+
+func (r *templateProcessor) ConsumeMetrics(ctx context.Context, metrics pmetric.Metrics) error {
+	return r.metrics.ConsumeMetrics(ctx, metrics)
+}
+
+func (r *templateProcessor) ConsumeTraces(ctx context.Context, traces ptrace.Traces) error {
+	return r.traces.ConsumeTraces(ctx, traces)
 }
 
 func newResolver(template templates.Template, variables map[string]any) (*confmap.Resolver, error) {
